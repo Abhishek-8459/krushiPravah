@@ -1,35 +1,60 @@
 
-import { supabase } from './supabaseClient';
+import { supabase, isSupabaseConfigured } from './supabaseClient';
+import { fetchPuneAPMCRates, PriceWithPrediction } from './scraperService';
 
 // Define the structure of market data
-export interface MarketItem {
+export interface MarketItem extends PriceWithPrediction {
   id: number;
-  commodity: string;
-  commodityMarathi?: string;
-  min: number;
-  max: number;
-  modal: number;
-  unit: string;
-  date: string;
 }
 
-// Function to fetch market data from the database
+// Function to fetch market data from the API and store in Supabase
 export const fetchMarketRates = async (): Promise<MarketItem[]> => {
   try {
-    const { data, error } = await supabase
-      .from('market_rates')
-      .select('*')
-      .order('commodity', { ascending: true });
-      
-    if (error) {
-      console.error('Error fetching market rates:', error);
-      throw new Error('Failed to fetch market rates');
+    // Try to fetch from Supabase first
+    if (isSupabaseConfigured()) {
+      const { data, error } = await supabase
+        .from('market_rates')
+        .select('*')
+        .order('commodity', { ascending: true });
+        
+      if (error) {
+        console.error('Error fetching market rates from Supabase:', error);
+      } else if (data && data.length > 0) {
+        console.log('Using data from Supabase');
+        return data;
+      }
+    }
+
+    // If Supabase fails or is not configured, fetch from the scraper
+    console.log('Attempting to fetch data from Pune APMC website');
+    const scrapedData = await fetchPuneAPMCRates();
+    
+    // Add IDs to the data
+    const marketData: MarketItem[] = scrapedData.map((item, index) => ({
+      ...item,
+      id: index + 1
+    }));
+    
+    // If Supabase is configured, store the data for next time
+    if (isSupabaseConfigured()) {
+      try {
+        // First clear the table
+        await supabase.from('market_rates').delete().neq('id', 0);
+        
+        // Then insert new data
+        const { error } = await supabase.from('market_rates').insert(marketData);
+        if (error) {
+          console.error('Error storing market rates in Supabase:', error);
+        }
+      } catch (storeError) {
+        console.error('Failed to store market data in Supabase:', storeError);
+      }
     }
     
-    return data || [];
+    return marketData;
   } catch (error) {
-    console.error('Unexpected error:', error);
-    // Return mock data for development or when there's an error
+    console.error('Unexpected error fetching market data:', error);
+    // Return mock data as a fallback
     return getMockMarketData();
   }
 };
@@ -37,16 +62,16 @@ export const fetchMarketRates = async (): Promise<MarketItem[]> => {
 // Mock data for development or when the API is not available
 export const getMockMarketData = (): MarketItem[] => {
   return [
-    { id: 1, commodity: 'Tomato', commodityMarathi: 'टोमॅटो', min: 1000, max: 2500, modal: 1800, unit: 'Quintal', date: '2025-04-12' },
-    { id: 2, commodity: 'Potato', commodityMarathi: 'बटाटा', min: 800, max: 1500, modal: 1200, unit: 'Quintal', date: '2025-04-12' },
-    { id: 3, commodity: 'Onion', commodityMarathi: 'कांदा', min: 1200, max: 2000, modal: 1700, unit: 'Quintal', date: '2025-04-12' },
-    { id: 4, commodity: 'Lady Finger', commodityMarathi: 'भेंडी', min: 2000, max: 3500, modal: 2800, unit: 'Quintal', date: '2025-04-12' },
-    { id: 5, commodity: 'Cauliflower', commodityMarathi: 'फूलकोबी', min: 1500, max: 2500, modal: 2000, unit: 'Quintal', date: '2025-04-12' },
-    { id: 6, commodity: 'Cabbage', commodityMarathi: 'कोबी', min: 800, max: 1200, modal: 1000, unit: 'Quintal', date: '2025-04-12' },
-    { id: 7, commodity: 'Brinjal', commodityMarathi: 'वांगे', min: 1800, max: 2800, modal: 2200, unit: 'Quintal', date: '2025-04-12' },
-    { id: 8, commodity: 'Cucumber', commodityMarathi: 'काकडी', min: 1200, max: 1800, modal: 1500, unit: 'Quintal', date: '2025-04-12' },
-    { id: 9, commodity: 'Carrot', commodityMarathi: 'गाजर', min: 1500, max: 2200, modal: 1800, unit: 'Quintal', date: '2025-04-12' },
-    { id: 10, commodity: 'Spinach', commodityMarathi: 'पालक', min: 1000, max: 1800, modal: 1400, unit: 'Quintal', date: '2025-04-12' },
+    { id: 1, commodity: 'Tomato', commodityMarathi: 'टोमॅटो', min: 1000, max: 2500, modal: 1800, unit: 'Quintal', date: '2025-04-12', arrival: 9500, prediction: 'decrease', previousModal: 2000 },
+    { id: 2, commodity: 'Potato', commodityMarathi: 'बटाटा', min: 800, max: 1500, modal: 1200, unit: 'Quintal', date: '2025-04-12', arrival: 15000, prediction: 'increase', previousModal: 1100 },
+    { id: 3, commodity: 'Onion', commodityMarathi: 'कांदा', min: 1200, max: 2000, modal: 1700, unit: 'Quintal', date: '2025-04-12', arrival: 12000, prediction: 'decrease', previousModal: 1800 },
+    { id: 4, commodity: 'Lady Finger', commodityMarathi: 'भेंडी', min: 2000, max: 3500, modal: 2800, unit: 'Quintal', date: '2025-04-12', arrival: 1500, prediction: 'increase', previousModal: 3000 },
+    { id: 5, commodity: 'Cauliflower', commodityMarathi: 'फूलकोबी', min: 1500, max: 2500, modal: 2000, unit: 'Quintal', date: '2025-04-12', arrival: 3000, prediction: 'stable', previousModal: 2100 },
+    { id: 6, commodity: 'Cabbage', commodityMarathi: 'कोबी', min: 800, max: 1200, modal: 1000, unit: 'Quintal', date: '2025-04-12', arrival: 10000, prediction: 'increase', previousModal: 950 },
+    { id: 7, commodity: 'Brinjal', commodityMarathi: 'वांगे', min: 1800, max: 2800, modal: 2200, unit: 'Quintal', date: '2025-04-12', arrival: 4000, prediction: 'decrease', previousModal: 2300 },
+    { id: 8, commodity: 'Cucumber', commodityMarathi: 'काकडी', min: 1200, max: 1800, modal: 1500, unit: 'Quintal', date: '2025-04-12', arrival: 7000, prediction: 'increase', previousModal: 1400 },
+    { id: 9, commodity: 'Carrot', commodityMarathi: 'गाजर', min: 1500, max: 2200, modal: 1800, unit: 'Quintal', date: '2025-04-12', arrival: 3500, prediction: 'decrease', previousModal: 1900 },
+    { id: 10, commodity: 'Spinach', commodityMarathi: 'पालक', min: 1000, max: 1800, modal: 1400, unit: 'Quintal', date: '2025-04-12', arrival: 2000, prediction: 'increase', previousModal: 1300 },
   ];
 };
 
