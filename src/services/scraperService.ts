@@ -1,4 +1,3 @@
-
 // This service fetches and parses data from the Pune APMC website
 
 interface PuneAPMCRate {
@@ -67,31 +66,72 @@ const parseAPMCHtml = (html: string): PuneAPMCRate[] => {
 // Function to fetch the Pune APMC data
 export const fetchPuneAPMCRates = async (): Promise<PriceWithPrediction[]> => {
   try {
-    // Because of CORS, we'll proxy this request in a real app
-    // For now, we'll simulate by returning mock data with predictions
-    // In production, you would use a serverless function or backend API
-
-    // Simulate a fetch call
     console.log('Attempting to fetch data from Pune APMC website');
     
-    // In a real implementation, this would be:
-    // const response = await fetch('http://www.puneapmc.org/history.aspx?id=Rates4315');
-    // const html = await response.text();
-    // const parsedRates = parseAPMCHtml(html);
+    // Use a CORS proxy to fetch data from the Pune APMC website
+    // This is needed because the website might not allow direct cross-origin requests
+    const corsProxy = "https://corsproxy.io/?";
+    const url = encodeURIComponent("http://www.puneapmc.org/rates.aspx");
     
-    // For now, we'll use mock data but with predictions
-    return generatePredictions(getMockAPMCData());
+    const response = await fetch(`${corsProxy}${url}`);
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch data: ${response.status} ${response.statusText}`);
+    }
+    
+    const html = await response.text();
+    const parsedRates = parseAPMCHtml(html);
+    
+    console.log('Successfully parsed rates from Pune APMC:', parsedRates.length, 'items');
+    
+    // If we couldn't parse any rates, use mock data
+    if (parsedRates.length === 0) {
+      console.warn('Could not parse any rates, falling back to mock data');
+      return generatePredictions(getMockAPMCData());
+    }
+    
+    // Fetch historical data to compare for predictions
+    const historicalRates = await fetchHistoricalRates();
+    
+    return generatePredictions(parsedRates, historicalRates);
   } catch (error) {
     console.error('Error fetching Pune APMC rates:', error);
     return generatePredictions(getMockAPMCData());
   }
 };
 
+// Function to fetch historical rates for prediction purposes
+const fetchHistoricalRates = async (): Promise<PuneAPMCRate[]> => {
+  try {
+    // Try to get historical data (from a week ago)
+    const corsProxy = "https://corsproxy.io/?";
+    const url = encodeURIComponent("http://www.puneapmc.org/history.aspx?id=Rates4315");
+    
+    const response = await fetch(`${corsProxy}${url}`);
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch historical data: ${response.status} ${response.statusText}`);
+    }
+    
+    const html = await response.text();
+    const parsedRates = parseAPMCHtml(html);
+    
+    if (parsedRates.length === 0) {
+      return getHistoricalRates(); // fallback to mock historical data
+    }
+    
+    return parsedRates;
+  } catch (error) {
+    console.error('Error fetching historical rates:', error);
+    return getHistoricalRates(); // fallback to mock historical data
+  }
+};
+
 // Function to predict price trends based on supply (arrival) and current rates
-export const generatePredictions = (rates: PuneAPMCRate[]): PriceWithPrediction[] => {
-  // Get historical rates (normally from database, but we'll simulate)
-  const historicalRates = getHistoricalRates();
-  
+export const generatePredictions = (
+  rates: PuneAPMCRate[], 
+  historicalRates: PuneAPMCRate[] = getHistoricalRates()
+): PriceWithPrediction[] => {
   return rates.map(rate => {
     const historical = historicalRates.find(h => h.commodity === rate.commodity);
     let prediction: 'increase' | 'decrease' | 'stable' = 'stable';
@@ -149,7 +189,7 @@ export const generatePredictions = (rates: PuneAPMCRate[]): PriceWithPrediction[
   });
 };
 
-// Mock historical data (one week ago) for comparison
+// Mock historical data (one week ago) for comparison when API fails
 const getHistoricalRates = (): PuneAPMCRate[] => {
   return [
     { commodity: 'Tomato', arrival: 8500, minRate: 1200, maxRate: 2700, modalRate: 2000, date: '2025-04-05' },
@@ -165,7 +205,7 @@ const getHistoricalRates = (): PuneAPMCRate[] => {
   ];
 };
 
-// Mock current data with arrivals (supply)
+// Mock current data with arrivals (supply) for when the API fails
 const getMockAPMCData = (): PuneAPMCRate[] => {
   return [
     { commodity: 'Tomato', arrival: 9500, minRate: 1000, maxRate: 2500, modalRate: 1800, date: '2025-04-12' },

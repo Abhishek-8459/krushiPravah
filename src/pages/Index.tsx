@@ -16,6 +16,9 @@ const Index = () => {
           alt="Krushi Pravah Logo" 
           className="h-40 w-40 object-contain mb-6"
         />
+        <h1 className="text-3xl font-bold mb-4 text-green-700">
+          {translate("Krushi Pravah", "कृषी प्रवाह")}
+        </h1>
         <p className="text-xl text-gray-700 mb-6">
           {translate(
             "Jai Jawan, Jai Kisan - Empowering Farmers with Real-Time Market Insights",
@@ -27,7 +30,7 @@ const Index = () => {
             className="w-full bg-green-600 text-white hover:bg-green-700"
             onClick={() => navigate('/market-rates')}
           >
-            {translate("View Market Rates", "बाजार भाव पहा")}
+            {translate("View Live Market Rates", "लाईव्ह बाजार भाव पहा")}
           </Button>
         </div>
       </div>
