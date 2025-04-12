@@ -10,15 +10,15 @@ export interface MarketItem extends PriceWithPrediction {
 // Function to fetch market data from the API and store in Supabase
 export const fetchMarketRates = async (): Promise<MarketItem[]> => {
   try {
-    // Try to fetch from Supabase first if the data is less than 6 hours old
+    // Try to fetch from Supabase first if the data is less than 3 hours old
     if (isSupabaseConfigured()) {
-      const sixHoursAgo = new Date();
-      sixHoursAgo.setHours(sixHoursAgo.getHours() - 6);
+      const threeHoursAgo = new Date();
+      threeHoursAgo.setHours(threeHoursAgo.getHours() - 3);
       
       const { data, error } = await supabase
         .from('market_rates')
         .select('*, created_at')
-        .gt('created_at', sixHoursAgo.toISOString())
+        .gt('created_at', threeHoursAgo.toISOString())
         .order('commodity', { ascending: true });
         
       if (error) {
@@ -32,6 +32,9 @@ export const fetchMarketRates = async (): Promise<MarketItem[]> => {
     // If Supabase fails or data is stale, fetch from the scraper
     console.log('Fetching live data from Pune APMC website');
     const scrapedData = await fetchPuneAPMCRates();
+    
+    // Log the actually fetched data for debugging
+    console.log('Scraped data from Pune APMC:', scrapedData);
     
     // Add IDs to the data
     const marketData: MarketItem[] = scrapedData.map((item, index) => ({
@@ -55,6 +58,8 @@ export const fetchMarketRates = async (): Promise<MarketItem[]> => {
         
         if (error) {
           console.error('Error storing market rates in Supabase:', error);
+        } else {
+          console.log('Successfully stored market data in Supabase');
         }
       } catch (storeError) {
         console.error('Failed to store market data in Supabase:', storeError);

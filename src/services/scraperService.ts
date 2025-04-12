@@ -1,7 +1,9 @@
+
 // This service fetches and parses data from the Pune APMC website
 
 interface PuneAPMCRate {
   commodity: string;
+  commodityMarathi: string; // Added Marathi commodity name
   arrival: number; // Supply
   minRate: number;
   maxRate: number;
@@ -26,14 +28,31 @@ export interface PriceWithPrediction {
 const parseAPMCHtml = (html: string): PuneAPMCRate[] => {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, 'text/html');
-  const table = doc.querySelector('table.data');
   
-  if (!table) {
+  // Try different table selectors since the website might have various structures
+  const tables = doc.querySelectorAll('table');
+  let ratesTable = null;
+  
+  // Find the right table containing rate data
+  for (let i = 0; i < tables.length; i++) {
+    const table = tables[i];
+    const firstRow = table.querySelector('tr');
+    if (firstRow) {
+      const headerText = firstRow.textContent?.toLowerCase() || '';
+      if (headerText.includes('commodity') || headerText.includes('arrival') || 
+          headerText.includes('भाजीपाला') || headerText.includes('आवक')) {
+        ratesTable = table;
+        break;
+      }
+    }
+  }
+  
+  if (!ratesTable) {
     console.error('Could not find rate table in the HTML');
     return [];
   }
   
-  const rows = table.querySelectorAll('tr');
+  const rows = ratesTable.querySelectorAll('tr');
   const rates: PuneAPMCRate[] = [];
   
   // Skip the header row(s)
@@ -41,8 +60,30 @@ const parseAPMCHtml = (html: string): PuneAPMCRate[] => {
     const cells = rows[i].querySelectorAll('td');
     if (cells.length >= 5) {
       try {
+        // Extract both Marathi and English commodity names
+        const commodityCell = cells[0].textContent?.trim() || '';
+        let commodity = '';
+        let commodityMarathi = '';
+        
+        // Handle case where commodity might be in mixed language
+        if (/[a-zA-Z]/.test(commodityCell) && /[\u0900-\u097F]/.test(commodityCell)) {
+          // Has both English and Marathi chars
+          const parts = commodityCell.split(/(?=[\u0900-\u097F])|(?<=[a-zA-Z])(?=[\u0900-\u097F])/).map(p => p.trim());
+          commodity = parts.find(p => /[a-zA-Z]/.test(p)) || commodityCell;
+          commodityMarathi = parts.find(p => /[\u0900-\u097F]/.test(p)) || '';
+        } else if (/[a-zA-Z]/.test(commodityCell)) {
+          // Only English
+          commodity = commodityCell;
+          commodityMarathi = getMarathiTranslation(commodityCell);
+        } else {
+          // Only Marathi or other
+          commodityMarathi = commodityCell;
+          commodity = getEnglishTranslation(commodityCell);
+        }
+        
         const rate: PuneAPMCRate = {
-          commodity: cells[0].textContent?.trim() || '',
+          commodity: commodity,
+          commodityMarathi: commodityMarathi,
           arrival: parseFloat((cells[1].textContent?.trim() || '0').replace(/,/g, '')),
           minRate: parseFloat((cells[2].textContent?.trim() || '0').replace(/,/g, '')),
           maxRate: parseFloat((cells[3].textContent?.trim() || '0').replace(/,/g, '')),
@@ -51,7 +92,7 @@ const parseAPMCHtml = (html: string): PuneAPMCRate[] => {
         };
         
         // Only add valid entries
-        if (rate.commodity && !isNaN(rate.modalRate)) {
+        if ((rate.commodity || rate.commodityMarathi) && !isNaN(rate.modalRate)) {
           rates.push(rate);
         }
       } catch (error) {
@@ -61,16 +102,15 @@ const parseAPMCHtml = (html: string): PuneAPMCRate[] => {
   }
   
   return rates;
-}
+};
 
 // Function to fetch the Pune APMC data
 export const fetchPuneAPMCRates = async (): Promise<PriceWithPrediction[]> => {
   try {
     console.log('Attempting to fetch data from Pune APMC website');
     
-    // Use a CORS proxy to fetch data from the Pune APMC website
-    // This is needed because the website might not allow direct cross-origin requests
-    const corsProxy = "https://corsproxy.io/?";
+    // Use a different CORS proxy since the current one is failing
+    const corsProxy = "https://api.allorigins.win/raw?url=";
     const url = encodeURIComponent("http://www.puneapmc.org/rates.aspx");
     
     const response = await fetch(`${corsProxy}${url}`);
@@ -80,6 +120,7 @@ export const fetchPuneAPMCRates = async (): Promise<PriceWithPrediction[]> => {
     }
     
     const html = await response.text();
+    console.log('Successfully received HTML from Pune APMC website, parsing...');
     const parsedRates = parseAPMCHtml(html);
     
     console.log('Successfully parsed rates from Pune APMC:', parsedRates.length, 'items');
@@ -104,7 +145,7 @@ export const fetchPuneAPMCRates = async (): Promise<PriceWithPrediction[]> => {
 const fetchHistoricalRates = async (): Promise<PuneAPMCRate[]> => {
   try {
     // Try to get historical data (from a week ago)
-    const corsProxy = "https://corsproxy.io/?";
+    const corsProxy = "https://api.allorigins.win/raw?url=";
     const url = encodeURIComponent("http://www.puneapmc.org/history.aspx?id=Rates4315");
     
     const response = await fetch(`${corsProxy}${url}`);
@@ -133,7 +174,12 @@ export const generatePredictions = (
   historicalRates: PuneAPMCRate[] = getHistoricalRates()
 ): PriceWithPrediction[] => {
   return rates.map(rate => {
-    const historical = historicalRates.find(h => h.commodity === rate.commodity);
+    // Find historical data for this commodity by matching commodity name or Marathi name
+    const historical = historicalRates.find(h => 
+      h.commodity === rate.commodity || 
+      h.commodityMarathi === rate.commodityMarathi
+    );
+    
     let prediction: 'increase' | 'decrease' | 'stable' = 'stable';
     
     if (historical) {
@@ -175,8 +221,8 @@ export const generatePredictions = (
     
     // Map to our application's expected format
     return {
-      commodity: rate.commodity,
-      commodityMarathi: getMarathiTranslation(rate.commodity),
+      commodity: rate.commodity || getEnglishTranslation(rate.commodityMarathi),
+      commodityMarathi: rate.commodityMarathi || getMarathiTranslation(rate.commodity),
       min: rate.minRate,
       max: rate.maxRate,
       modal: rate.modalRate,
@@ -187,38 +233,6 @@ export const generatePredictions = (
       previousModal: historical?.modalRate
     };
   });
-};
-
-// Mock historical data (one week ago) for comparison when API fails
-const getHistoricalRates = (): PuneAPMCRate[] => {
-  return [
-    { commodity: 'Tomato', arrival: 8500, minRate: 1200, maxRate: 2700, modalRate: 2000, date: '2025-04-05' },
-    { commodity: 'Potato', arrival: 12000, minRate: 750, maxRate: 1400, modalRate: 1100, date: '2025-04-05' },
-    { commodity: 'Onion', arrival: 15000, minRate: 1300, maxRate: 2100, modalRate: 1800, date: '2025-04-05' },
-    { commodity: 'Lady Finger', arrival: 2000, minRate: 2200, maxRate: 3700, modalRate: 3000, date: '2025-04-05' },
-    { commodity: 'Cauliflower', arrival: 3500, minRate: 1600, maxRate: 2600, modalRate: 2100, date: '2025-04-05' },
-    { commodity: 'Cabbage', arrival: 9000, minRate: 750, maxRate: 1100, modalRate: 950, date: '2025-04-05' },
-    { commodity: 'Brinjal', arrival: 4500, minRate: 1900, maxRate: 2900, modalRate: 2300, date: '2025-04-05' },
-    { commodity: 'Cucumber', arrival: 6000, minRate: 1100, maxRate: 1700, modalRate: 1400, date: '2025-04-05' },
-    { commodity: 'Carrot', arrival: 4000, minRate: 1600, maxRate: 2300, modalRate: 1900, date: '2025-04-05' },
-    { commodity: 'Spinach', arrival: 2500, minRate: 950, maxRate: 1700, modalRate: 1300, date: '2025-04-05' },
-  ];
-};
-
-// Mock current data with arrivals (supply) for when the API fails
-const getMockAPMCData = (): PuneAPMCRate[] => {
-  return [
-    { commodity: 'Tomato', arrival: 9500, minRate: 1000, maxRate: 2500, modalRate: 1800, date: '2025-04-12' },
-    { commodity: 'Potato', arrival: 15000, minRate: 800, maxRate: 1500, modalRate: 1200, date: '2025-04-12' },
-    { commodity: 'Onion', arrival: 12000, minRate: 1200, maxRate: 2000, modalRate: 1700, date: '2025-04-12' },
-    { commodity: 'Lady Finger', arrival: 1500, minRate: 2000, maxRate: 3500, modalRate: 2800, date: '2025-04-12' },
-    { commodity: 'Cauliflower', arrival: 3000, minRate: 1500, maxRate: 2500, modalRate: 2000, date: '2025-04-12' },
-    { commodity: 'Cabbage', arrival: 10000, minRate: 800, maxRate: 1200, modalRate: 1000, date: '2025-04-12' },
-    { commodity: 'Brinjal', arrival: 4000, minRate: 1800, maxRate: 2800, modalRate: 2200, date: '2025-04-12' },
-    { commodity: 'Cucumber', arrival: 7000, minRate: 1200, maxRate: 1800, modalRate: 1500, date: '2025-04-12' },
-    { commodity: 'Carrot', arrival: 3500, minRate: 1500, maxRate: 2200, modalRate: 1800, date: '2025-04-12' },
-    { commodity: 'Spinach', arrival: 2000, minRate: 1000, maxRate: 1800, modalRate: 1400, date: '2025-04-12' },
-  ];
 };
 
 // Helper function to get Marathi translations
@@ -234,7 +248,83 @@ const getMarathiTranslation = (commodity: string): string => {
     'Cucumber': 'काकडी',
     'Carrot': 'गाजर',
     'Spinach': 'पालक',
+    'Bitter Gourd': 'कारले',
+    'Bottle Gourd': 'दुधी भोपळा',
+    'Capsicum': 'शिमला मिरची',
+    'Coriander': 'कोथिंबीर',
+    'Fenugreek': 'मेथी',
+    'Garlic': 'लसूण',
+    'Ginger': 'आले',
+    'Green Chilli': 'हिरवी मिरची',
+    'Green Peas': 'हिरवे वाटाणे',
+    'Lemon': 'लिंबू',
+    'Radish': 'मुळा',
+    'Ridge Gourd': 'दोडका',
+    'Pumpkin': 'भोपळा',
   };
   
   return translations[commodity] || commodity;
+};
+
+// Helper function to get English translations
+const getEnglishTranslation = (marathiCommodity: string): string => {
+  const translations: Record<string, string> = {
+    'टोमॅटो': 'Tomato',
+    'बटाटा': 'Potato',
+    'कांदा': 'Onion',
+    'भेंडी': 'Lady Finger',
+    'फूलकोबी': 'Cauliflower',
+    'कोबी': 'Cabbage',
+    'वांगे': 'Brinjal',
+    'काकडी': 'Cucumber',
+    'गाजर': 'Carrot',
+    'पालक': 'Spinach',
+    'कारले': 'Bitter Gourd',
+    'दुधी भोपळा': 'Bottle Gourd',
+    'शिमला मिरची': 'Capsicum',
+    'कोथिंबीर': 'Coriander',
+    'मेथी': 'Fenugreek',
+    'लसूण': 'Garlic',
+    'आले': 'Ginger',
+    'हिरवी मिरची': 'Green Chilli',
+    'हिरवे वाटाणे': 'Green Peas',
+    'लिंबू': 'Lemon',
+    'मुळा': 'Radish',
+    'दोडका': 'Ridge Gourd',
+    'भोपळा': 'Pumpkin',
+  };
+  
+  return translations[marathiCommodity] || marathiCommodity;
+};
+
+// Mock historical data (one week ago) for comparison when API fails
+const getHistoricalRates = (): PuneAPMCRate[] => {
+  return [
+    { commodity: 'Tomato', commodityMarathi: 'टोमॅटो', arrival: 8500, minRate: 1200, maxRate: 2700, modalRate: 2000, date: '2025-04-05' },
+    { commodity: 'Potato', commodityMarathi: 'बटाटा', arrival: 12000, minRate: 750, maxRate: 1400, modalRate: 1100, date: '2025-04-05' },
+    { commodity: 'Onion', commodityMarathi: 'कांदा', arrival: 15000, minRate: 1300, maxRate: 2100, modalRate: 1800, date: '2025-04-05' },
+    { commodity: 'Lady Finger', commodityMarathi: 'भेंडी', arrival: 2000, minRate: 2200, maxRate: 3700, modalRate: 3000, date: '2025-04-05' },
+    { commodity: 'Cauliflower', commodityMarathi: 'फूलकोबी', arrival: 3500, minRate: 1600, maxRate: 2600, modalRate: 2100, date: '2025-04-05' },
+    { commodity: 'Cabbage', commodityMarathi: 'कोबी', arrival: 9000, minRate: 750, maxRate: 1100, modalRate: 950, date: '2025-04-05' },
+    { commodity: 'Brinjal', commodityMarathi: 'वांगे', arrival: 4500, minRate: 1900, maxRate: 2900, modalRate: 2300, date: '2025-04-05' },
+    { commodity: 'Cucumber', commodityMarathi: 'काकडी', arrival: 6000, minRate: 1100, maxRate: 1700, modalRate: 1400, date: '2025-04-05' },
+    { commodity: 'Carrot', commodityMarathi: 'गाजर', arrival: 4000, minRate: 1600, maxRate: 2300, modalRate: 1900, date: '2025-04-05' },
+    { commodity: 'Spinach', commodityMarathi: 'पालक', arrival: 2500, minRate: 950, maxRate: 1700, modalRate: 1300, date: '2025-04-05' },
+  ];
+};
+
+// Mock current data with arrivals (supply) for when the API fails
+const getMockAPMCData = (): PuneAPMCRate[] => {
+  return [
+    { commodity: 'Tomato', commodityMarathi: 'टोमॅटो', arrival: 9500, minRate: 1000, maxRate: 2500, modalRate: 1800, date: '2025-04-12' },
+    { commodity: 'Potato', commodityMarathi: 'बटाटा', arrival: 15000, minRate: 800, maxRate: 1500, modalRate: 1200, date: '2025-04-12' },
+    { commodity: 'Onion', commodityMarathi: 'कांदा', arrival: 12000, minRate: 1200, maxRate: 2000, modalRate: 1700, date: '2025-04-12' },
+    { commodity: 'Lady Finger', commodityMarathi: 'भेंडी', arrival: 1500, minRate: 2000, maxRate: 3500, modalRate: 2800, date: '2025-04-12' },
+    { commodity: 'Cauliflower', commodityMarathi: 'फूलकोबी', arrival: 3000, minRate: 1500, maxRate: 2500, modalRate: 2000, date: '2025-04-12' },
+    { commodity: 'Cabbage', commodityMarathi: 'कोबी', arrival: 10000, minRate: 800, maxRate: 1200, modalRate: 1000, date: '2025-04-12' },
+    { commodity: 'Brinjal', commodityMarathi: 'वांगे', arrival: 4000, minRate: 1800, maxRate: 2800, modalRate: 2200, date: '2025-04-12' },
+    { commodity: 'Cucumber', commodityMarathi: 'काकडी', arrival: 7000, minRate: 1200, maxRate: 1800, modalRate: 1500, date: '2025-04-12' },
+    { commodity: 'Carrot', commodityMarathi: 'गाजर', arrival: 3500, minRate: 1500, maxRate: 2200, modalRate: 1800, date: '2025-04-12' },
+    { commodity: 'Spinach', commodityMarathi: 'पालक', arrival: 2000, minRate: 1000, maxRate: 1800, modalRate: 1400, date: '2025-04-12' },
+  ];
 };
