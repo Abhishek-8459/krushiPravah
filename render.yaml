@@ -1,7 +1,6 @@
 services:
-  - type: web
+  - type: static
     name: krushi-pravah-frontend
-    env: node
     buildCommand: npm install && npm run build
     staticPublishPath: ./dist
     envVars:
