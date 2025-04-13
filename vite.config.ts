@@ -14,13 +14,17 @@ export default defineConfig(({ mode }) => ({
     mode === 'development' &&
     componentTagger(),
   ].filter(Boolean),
-  base: '/',
+  base: '/krushiPravah/',
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
   },
   define: {
-    'process.env.VITE_API_URL': JSON.stringify(process.env.VITE_API_URL || 'http://localhost:3000')
+    'process.env.VITE_API_URL': JSON.stringify(
+      mode === 'development' 
+        ? 'http://localhost:3000'
+        : 'https://krushi-pravah-backend.up.railway.app'
+    )
   }
 }));
