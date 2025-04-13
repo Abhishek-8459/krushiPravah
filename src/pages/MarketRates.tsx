@@ -1,18 +1,26 @@
-
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Search, RefreshCw, TrendingUp, TrendingDown, Minus, BarChart } from 'lucide-react';
+import { ArrowLeft, Search, RefreshCw, TrendingUp, TrendingDown, Minus, BarChart, Filter } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useToast } from '@/hooks/use-toast';
 import { fetchMarketRates, MarketItem } from '@/services/marketService';
 import { useLanguage } from '@/contexts/LanguageContext';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const MarketRates = () => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [sortBy, setSortBy] = useState('modal');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const navigate = useNavigate();
   const { toast } = useToast();
   const { language, translate } = useLanguage();
@@ -21,13 +29,27 @@ const MarketRates = () => {
   const { data: marketData, isLoading, error, refetch } = useQuery({
     queryKey: ['marketRates'],
     queryFn: fetchMarketRates,
+    refetchInterval: 300000, // Refetch every 5 minutes
   });
 
-  // Filter data based on search term
-  const filteredData = marketData?.filter(item => 
-    item.commodity.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    (item.commodityMarathi && item.commodityMarathi.includes(searchTerm))
-  );
+  // Filter and sort data
+  const filteredData = useMemo(() => {
+    if (!marketData) return [];
+    
+    let filtered = marketData.filter(item => 
+      item.commodity.toLowerCase().includes(searchTerm.toLowerCase()) || 
+      (item.commodityMarathi && item.commodityMarathi.toLowerCase().includes(searchTerm.toLowerCase()))
+    );
+
+    // Sort data
+    filtered.sort((a, b) => {
+      const aValue = a[sortBy as keyof MarketItem] as number;
+      const bValue = b[sortBy as keyof MarketItem] as number;
+      return sortOrder === 'asc' ? aValue - bValue : bValue - aValue;
+    });
+
+    return filtered;
+  }, [marketData, searchTerm, sortBy, sortOrder]);
 
   // Handle refresh button click
   const handleRefresh = () => {
@@ -116,14 +138,34 @@ const MarketRates = () => {
                   className="pl-9 border-orange-200 focus-visible:ring-green-500"
                 />
               </div>
-              <Button 
-                variant="outline" 
-                onClick={handleRefresh}
-                className="text-orange-600 border-orange-300 hover:bg-orange-50 gap-2"
-              >
-                <RefreshCw className="h-4 w-4" />
-                {translate('Refresh', 'ताजे करा')}
-              </Button>
+              <div className="flex gap-2">
+                <Select value={sortBy} onValueChange={setSortBy}>
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder={translate("Sort by", "क्रमवारी")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="modal">{translate("Modal Price", "सामान्य भाव")}</SelectItem>
+                    <SelectItem value="min">{translate("Min Price", "किमान भाव")}</SelectItem>
+                    <SelectItem value="max">{translate("Max Price", "कमाल भाव")}</SelectItem>
+                    <SelectItem value="arrival">{translate("Supply", "आवक")}</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button 
+                  variant="outline" 
+                  onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+                  className="text-orange-600 border-orange-300 hover:bg-orange-50"
+                >
+                  <Filter className="h-4 w-4" />
+                </Button>
+                <Button 
+                  variant="outline" 
+                  onClick={handleRefresh}
+                  className="text-orange-600 border-orange-300 hover:bg-orange-50 gap-2"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  {translate('Refresh', 'ताजे करा')}
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -176,7 +218,12 @@ const MarketRates = () => {
                       filteredData.map((item) => (
                         <TableRow key={item.id} className="hover:bg-green-50/50">
                           <TableCell className="font-medium">
-                            {language === 'english' ? item.commodity : item.commodityMarathi || item.commodity}
+                            <div className="flex flex-col">
+                              <span>{language === 'english' ? item.commodity : item.commodityMarathi || item.commodity}</span>
+                              {language === 'english' && item.commodityMarathi && (
+                                <span className="text-xs text-gray-500">{item.commodityMarathi}</span>
+                              )}
+                            </div>
                           </TableCell>
                           <TableCell className="text-right">{formatPrice(item.min)}</TableCell>
                           <TableCell className="text-right">{formatPrice(item.max)}</TableCell>

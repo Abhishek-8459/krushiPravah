@@ -1,4 +1,3 @@
-
 // This service fetches and parses data from the Pune APMC website
 
 interface PuneAPMCRate {
@@ -107,36 +106,25 @@ const parseAPMCHtml = (html: string): PuneAPMCRate[] => {
 // Function to fetch the Pune APMC data
 export const fetchPuneAPMCRates = async (): Promise<PriceWithPrediction[]> => {
   try {
-    console.log('Attempting to fetch data from Pune APMC website');
+    console.log('Fetching data from backend server');
     
-    // Use a different CORS proxy since the current one is failing
-    const corsProxy = "https://api.allorigins.win/raw?url=";
-    const url = encodeURIComponent("http://www.puneapmc.org/rates.aspx");
-    
-    const response = await fetch(`${corsProxy}${url}`);
+    const response = await fetch('http://localhost:3000/api/market-rates');
     
     if (!response.ok) {
       throw new Error(`Failed to fetch data: ${response.status} ${response.statusText}`);
     }
     
-    const html = await response.text();
-    console.log('Successfully received HTML from Pune APMC website, parsing...');
-    const parsedRates = parseAPMCHtml(html);
-    
-    console.log('Successfully parsed rates from Pune APMC:', parsedRates.length, 'items');
-    
-    // If we couldn't parse any rates, use mock data
-    if (parsedRates.length === 0) {
-      console.warn('Could not parse any rates, falling back to mock data');
-      return generatePredictions(getMockAPMCData());
-    }
+    const rates = await response.json();
+    console.log('Successfully received rates from backend:', rates.length, 'items');
     
     // Fetch historical data to compare for predictions
     const historicalRates = await fetchHistoricalRates();
     
-    return generatePredictions(parsedRates, historicalRates);
+    return generatePredictions(rates, historicalRates);
   } catch (error) {
     console.error('Error fetching Pune APMC rates:', error);
+    // Only use mock data as a last resort
+    console.warn('Falling back to mock data due to error');
     return generatePredictions(getMockAPMCData());
   }
 };
@@ -261,6 +249,10 @@ const getMarathiTranslation = (commodity: string): string => {
     'Radish': 'मुळा',
     'Ridge Gourd': 'दोडका',
     'Pumpkin': 'भोपळा',
+    'Mushroom': 'मशरूम',
+    'Strawberry': 'स्ट्रॉबेरी',
+    'Sponge Gourd': 'परवल',
+    'Cluster Beans': 'गवार',
   };
   
   return translations[commodity] || commodity;
@@ -292,6 +284,10 @@ const getEnglishTranslation = (marathiCommodity: string): string => {
     'मुळा': 'Radish',
     'दोडका': 'Ridge Gourd',
     'भोपळा': 'Pumpkin',
+    'मशरूम': 'Mushroom',
+    'स्ट्रॉबेरी': 'Strawberry',
+    'परवल': 'Sponge Gourd',
+    'गवार': 'Cluster Beans',
   };
   
   return translations[marathiCommodity] || marathiCommodity;

@@ -1,15 +1,15 @@
-
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useNavigate } from 'react-router-dom';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 const Language = () => {
   const navigate = useNavigate();
+  const { setLanguage, translate } = useLanguage();
 
   const handleLanguageSelect = (language: 'english' | 'marathi') => {
-    // In a real app, we would store this preference in localStorage or a database
-    localStorage.setItem('preferredLanguage', language);
+    setLanguage(language);
     navigate('/market-rates');
   };
 
@@ -22,7 +22,10 @@ const Language = () => {
         </h1>
         
         <p className="text-xl text-gray-700 mb-8">
-          Please select your preferred language
+          {translate(
+            "Please select your preferred language",
+            "कृपया आपली पसंतीची भाषा निवडा"
+          )}
         </p>
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -37,13 +40,15 @@ const Language = () => {
                 className="w-16 h-16 mb-4"
               />
               <h2 className="text-2xl font-semibold text-gray-800">English</h2>
-              <p className="text-gray-600 mt-2">Continue in English</p>
+              <p className="text-gray-600 mt-2">
+                {translate("Continue in English", "इंग्रजीमध्ये सुरू ठेवा")}
+              </p>
               
               <Button 
                 variant="outline" 
                 className="mt-4 bg-orange-500 text-white hover:bg-orange-600 border-none"
               >
-                Select
+                {translate("Select", "निवडा")}
               </Button>
             </CardContent>
           </Card>
@@ -76,7 +81,7 @@ const Language = () => {
           className="mt-8 text-gray-600 hover:text-gray-800"
           onClick={() => navigate('/')}
         >
-          Back to Home
+          {translate("Back to Home", "मुख्यपृष्ठावर परत जा")}
         </Button>
       </div>
     </div>
