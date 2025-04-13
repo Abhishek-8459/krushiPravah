@@ -1,8 +1,10 @@
 services:
-  - type: static
+  - type: web
     name: krushi-pravah-frontend
+    env: node
     buildCommand: npm install && npm run build
     staticPublishPath: ./dist
+    startCommand: npm run preview
     envVars:
       - key: VITE_API_URL
         value: https://krushi-pravah-backend.onrender.com
