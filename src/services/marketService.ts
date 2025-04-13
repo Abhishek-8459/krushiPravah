@@ -1,6 +1,8 @@
-
 import { supabase, isSupabaseConfigured } from './supabaseClient';
 import { fetchPuneAPMCRates, PriceWithPrediction } from './scraperService';
+import axios from 'axios';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 // Define the structure of market data
 export interface MarketItem extends PriceWithPrediction {
@@ -10,67 +12,11 @@ export interface MarketItem extends PriceWithPrediction {
 // Function to fetch market data from the API and store in Supabase
 export const fetchMarketRates = async (): Promise<MarketItem[]> => {
   try {
-    // Try to fetch from Supabase first if the data is less than 3 hours old
-    if (isSupabaseConfigured()) {
-      const threeHoursAgo = new Date();
-      threeHoursAgo.setHours(threeHoursAgo.getHours() - 3);
-      
-      const { data, error } = await supabase
-        .from('market_rates')
-        .select('*, created_at')
-        .gt('created_at', threeHoursAgo.toISOString())
-        .order('commodity', { ascending: true });
-        
-      if (error) {
-        console.error('Error fetching market rates from Supabase:', error);
-      } else if (data && data.length > 0) {
-        console.log('Using recent data from Supabase');
-        return data.map(({ created_at, ...item }) => item);
-      }
-    }
-
-    // If Supabase fails or data is stale, fetch from the scraper
-    console.log('Fetching live data from Pune APMC website');
-    const scrapedData = await fetchPuneAPMCRates();
-    
-    // Log the actually fetched data for debugging
-    console.log('Scraped data from Pune APMC:', scrapedData);
-    
-    // Add IDs to the data
-    const marketData: MarketItem[] = scrapedData.map((item, index) => ({
-      ...item,
-      id: index + 1
-    }));
-    
-    // If Supabase is configured, store the data for next time
-    if (isSupabaseConfigured()) {
-      try {
-        // First clear the table
-        await supabase.from('market_rates').delete().neq('id', 0);
-        
-        // Then insert new data
-        const { error } = await supabase.from('market_rates').insert(
-          marketData.map(item => ({
-            ...item,
-            created_at: new Date().toISOString()
-          }))
-        );
-        
-        if (error) {
-          console.error('Error storing market rates in Supabase:', error);
-        } else {
-          console.log('Successfully stored market data in Supabase');
-        }
-      } catch (storeError) {
-        console.error('Failed to store market data in Supabase:', storeError);
-      }
-    }
-    
-    return marketData;
+    const response = await axios.get(`${API_URL}/api/market-rates`);
+    return response.data;
   } catch (error) {
-    console.error('Unexpected error fetching market data:', error);
-    // Return mock data as a fallback
-    return getMockMarketData();
+    console.error('Error fetching market rates:', error);
+    throw error;
   }
 };
 

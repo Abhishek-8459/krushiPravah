@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: krushi-pravah-frontend
+    env: node
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://krushi-pravah-backend.onrender.com
+
+  - type: web
+    name: krushi-pravah-backend
+    env: node
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: PORT
+        value: 10000 
